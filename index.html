@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Påminnelser</title>
+<meta name="description" content="Skapa påminnelser med röst eller text – synkas via Google Kalender.">
+<meta name="theme-color" content="#d93f3f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Påminnelser">
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e4e2dd;
+    --accent: #d93f3f; --accent-text: #fff; --ok: #2e8b57; --warn: #b26b00; --field: #fbfaf8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151517; --card: #212124; --text: #f2f2f4; --muted: #a0a0a8; --line: #34343a;
+            --accent: #ef5a5a; --ok: #4fbf82; --warn: #e2a443; --field: #1a1a1d; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 14px; }
+  h1 { font-size: 1.5rem; margin: 0; letter-spacing: -0.01em; }
+  .status { font-size: .8rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-bottom: 14px; }
+  .input-row { display: flex; gap: 8px; }
+  textarea, input, select { font: inherit; color: var(--text); background: var(--field);
+    border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; width: 100%; }
+  textarea { resize: none; min-height: 52px; }
+  textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button { font: inherit; border: 0; border-radius: 12px; padding: 10px 14px; cursor: pointer;
+    background: var(--line); color: var(--text); }
+  button.primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button.icon { width: 52px; flex: 0 0 52px; padding: 0; display: grid; place-items: center; }
+  button.ghost { background: transparent; color: var(--muted); padding: 6px 8px; }
+  button:disabled { opacity: .5; cursor: default; }
+  #mic.listening { background: var(--accent); color: #fff; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 25%, transparent); } }
+  .hint { color: var(--muted); font-size: .85rem; margin: 8px 2px 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .grid .full { grid-column: 1 / -1; }
+  label { font-size: .8rem; color: var(--muted); display: block; margin-bottom: 4px; }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 4px 6px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li.item { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+  li.item:last-child { border-bottom: 0; }
+  .check { width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; border: 2px solid var(--muted);
+    background: transparent; padding: 0; }
+  .check:hover { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+  .item .body { flex: 1; min-width: 0; }
+  .item .t { overflow-wrap: anywhere; }
+  .item .when { font-size: .82rem; color: var(--muted); }
+  .item.overdue .when { color: var(--accent); font-weight: 600; }
+  .empty { color: var(--muted); text-align: center; padding: 24px 8px; }
+  dialog { border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--text);
+    width: min(560px, calc(100vw - 32px)); padding: 18px; }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog h3 { margin: 0 0 6px; }
+  dialog p { margin: 6px 0 12px; color: var(--muted); font-size: .9rem; }
+  .stack > * + * { margin-top: 10px; }
+  .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: .9rem;
+    opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100vw - 32px); text-align: center; }
+  .toast.show { opacity: 1; }
+  .banner { background: color-mix(in srgb, var(--warn) 14%, var(--card)); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+  .banner p { margin: 0 0 10px; font-size: .9rem; }
+  @media (max-width: 420px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Påminnelser</h1>
+      <div class="status"><span class="dot" id="dot"></span><span id="statusText">Startar…</span></div>
+    </div>
+    <div>
+      <button class="ghost" id="refreshBtn" title="Uppdatera" aria-label="Uppdatera">⟳</button>
+      <button class="ghost" id="settingsBtn" title="Inställningar" aria-label="Inställningar">⚙︎</button>
+    </div>
+  </header>
+
+  <section class="card banner" id="setupBanner" hidden>
+    <p><strong>Lokalt läge.</strong> Påminnelserna sparas bara på den här enheten. Koppla appen till Google Kalender
+      för att synka mellan alla dina enheter och få notiser även när appen är stängd.</p>
+    <button class="primary" id="openSetup">Koppla till Google Kalender</button>
+  </section>
+
+  <section class="card">
+    <div class="input-row">
+      <textarea id="input" rows="2" placeholder="T.ex. ”imorgon kl 9 ringa tandläkaren”" aria-label="Ny påminnelse"></textarea>
+      <button class="icon" id="mic" title="Tala in" aria-label="Tala in påminnelse">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      </button>
+    </div>
+    <p class="hint" id="micHint">Skriv eller tryck på mikrofonen och säg t.ex. ”påminn mig på fredag kl 14 att lämna in rapporten”.</p>
+
+    <form id="form" hidden>
+      <div class="grid">
+        <div class="full"><label for="title">Vad</label><input id="title" required maxlength="500"></div>
+        <div><label for="when">När</label><input id="when" type="datetime-local" required></div>
+        <div><label for="repeat">Upprepa</label>
+          <select id="repeat">
+            <option value="none">Aldrig</option><option value="daily">Varje dag</option>
+            <option value="weekdays">Vardagar</option><option value="weekly">Varje vecka</option>
+            <option value="monthly">Varje månad</option><option value="yearly">Varje år</option>
+          </select></div>
+        <div class="full"><label for="before">Avisering</label>
+          <select id="before">
+            <option value="0">När det är dags</option><option value="5">5 min innan</option>
+            <option value="15">15 min innan</option><option value="60">1 timme innan</option>
+            <option value="1440">1 dag innan</option>
+          </select></div>
+      </div>
+      <div class="actions">
+        <button type="button" id="cancel">Avbryt</button>
+        <button type="submit" class="primary" id="save">Spara påminnelse</button>
+      </div>
+    </form>
+  </section>
+
+  <section id="list" aria-live="polite"></section>
+</main>
+
+<dialog id="settings">
+  <form method="dialog" class="stack" id="settingsForm">
+    <h3>Koppla till Google Kalender</h3>
+    <p>Klistra in webbappens adress och den hemliga koden från ditt Apps Script (se instruktionerna i README).
+      Ställ in en enhet, och använd sedan ”Kopiera inställningslänk” för att ställa in resten.</p>
+    <div><label for="apiUrl">Webbappens adress (slutar på /exec)</label>
+      <input id="apiUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></div>
+    <div><label for="apiToken">Hemlig kod</label>
+      <input id="apiToken" type="password" autocomplete="off"></div>
+    <div class="actions" style="flex-wrap:wrap">
+      <button type="button" id="copyLink">Kopiera inställningslänk</button>
+      <button type="button" id="notifBtn">Tillåt notiser</button>
+      <button value="cancel">Stäng</button>
+      <button type="button" class="primary" id="saveSettings">Spara & testa</button>
+    </div>
+    <p id="settingsMsg"></p>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script src="parse.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var LS = {
+    get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
+
+  var cfg = LS.get('cfg', { url: '', token: '' });
+  var items = LS.get('items', []);        // cache (moln) eller lagring (lokalt)
+  var pending = LS.get('pending', []);    // köade ändringar när man är offline
+  var notified = LS.get('notified', {});
+  var online = cfg.url && cfg.token;
+
+  // --- Inställningslänk: #setup=<base64> -----------------------------------
+  if (location.hash.indexOf('#setup=') === 0) {
+    try {
+      var s = JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(7)))));
+      if (s.url && s.token) { cfg = { url: s.url, token: s.token }; LS.set('cfg', cfg); online = true; toast('Enheten är inställd ✓'); }
+    } catch (e) { toast('Ogiltig inställningslänk'); }
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+
+  // --- API ------------------------------------------------------------------
+  function api(action, data) {
+    var body = Object.assign({ token: cfg.token, action: action }, data || {});
+    // text/plain undviker CORS-preflight mot Apps Script
+    return fetch(cfg.url, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (!j.ok) throw new Error(j.error || 'Fel från servern'); return j; });
+  }
+
+  function setStatus(kind, text) { $('dot').className = 'dot ' + (kind || ''); $('statusText').textContent = text; }
+
+  function sync() {
+    if (!online) { setStatus('warn', 'Lokalt läge – bara den här enheten'); $('setupBanner').hidden = false; render(); return Promise.resolve(); }
+    $('setupBanner').hidden = true;
+    setStatus('', 'Synkar…');
+    return flush().then(function () { return api('list'); }).then(function (j) {
+      items = j.items; LS.set('items', items); render();
+      setStatus('ok', 'Synkad med Google Kalender · ' + new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }));
+    }).catch(function (e) {
+      render();
+      setStatus('warn', navigator.onLine ? 'Kunde inte synka: ' + e.message : 'Offline – ändringar sparas och synkas senare');
+    });
+  }
+
+  function flush() {
+    if (!pending.length) return Promise.resolve();
+    var op = pending[0];
+    return api(op.action, op.data).then(function () { pending.shift(); LS.set('pending', pending); return flush(); });
+  }
+
+  function queue(action, data) {
+    pending.push({ action: action, data: data }); LS.set('pending', pending);
+    return sync();
+  }
+
+  // --- Skapa ----------------------------------------------------------------
+  var input = $('input'), form = $('form');
+
+  function toLocalInput(d) {
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function preview() {
+    var txt = input.value.trim();
+    if (!txt) { form.hidden = true; return; }
+    var r = window.parseReminder(txt);
+    $('title').value = r.title || txt;
+    var d = r.date;
+    if (!d) { d = new Date(Date.now() + 3600000); d.setMinutes(0, 0, 0); }
+    $('when').value = toLocalInput(d);
+    $('repeat').value = r.repeat;
+    form.hidden = false;
+  }
+  var t; input.addEventListener('input', function () { clearTimeout(t); t = setTimeout(preview, 250); });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); preview(); if (!form.hidden) form.requestSubmit(); }
+  });
+  $('cancel').onclick = function () { input.value = ''; form.hidden = true; };
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var start = new Date($('when').value);
+    if (isNaN(start)) return toast('Välj en tid');
+    var data = { title: $('title').value.trim(), start: start.toISOString(), repeat: $('repeat').value, minutesBefore: +$('before').value };
+    if (!data.title) return toast('Skriv vad du vill bli påmind om');
+    input.value = ''; form.hidden = true;
+
+    if (online) {
+      // Visa direkt, synka i bakgrunden
+      items.push({ id: 'tmp-' + Date.now(), title: data.title, start: data.start, recurring: data.repeat !== 'none', pending: true });
+      render();
+      queue('add', data).then(function () { toast('Sparad i Google Kalender ✓'); });
+    } else {
+      items.push({ id: 'l' + Date.now(), title: data.title, start: data.start, repeat: data.repeat, minutesBefore: data.minutesBefore });
+      LS.set('items', items); render(); toast('Sparad på den här enheten');
+      askNotifications();
+    }
+  });
+
+  // --- Klar / ta bort -------------------------------------------------------
+  function complete(it) {
+    if (online) {
+      items = items.filter(function (x) { return x !== it; }); render();
+      if (String(it.id).indexOf('tmp-') === 0) return;
+      queue('done', { id: it.id, start: it.start });
+    } else {
+      var next = it.repeat && it.repeat !== 'none' ? nextOccurrence(new Date(it.start), it.repeat) : null;
+      if (next) it.start = next.toISOString(); else items = items.filter(function (x) { return x !== it; });
+      LS.set('items', items); render();
+    }
+    toast('Klar ✓');
+  }
+  function remove(it) {
+    if (it.recurring || (it.repeat && it.repeat !== 'none')) { if (!confirm('Ta bort alla upprepningar av ”' + it.title + '”?')) return; }
+    items = items.filter(function (x) { return x.id !== it.id; }); render();
+    if (online) { if (String(it.id).indexOf('tmp-') !== 0) queue('delete', { id: it.id }); }
+    else LS.set('items', items);
+  }
+  function nextOccurrence(d, rep) {
+    var n = new Date(d);
+    do {
+      if (rep === 'daily') n.setDate(n.getDate() + 1);
+      else if (rep === 'weekdays') { do { n.setDate(n.getDate() + 1); } while (n.getDay() === 0 || n.getDay() === 6); }
+      else if (rep === 'weekly') n.setDate(n.getDate() + 7);
+      else if (rep === 'monthly') n.setMonth(n.getMonth() + 1);
+      else if (rep === 'yearly') n.setFullYear(n.getFullYear() + 1);
+      else return null;
+    } while (n <= new Date());
+    return n;
+  }
+
+  // --- Lista ----------------------------------------------------------------
+  function fmtWhen(d) {
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var day = new Date(d); day.setHours(0, 0, 0, 0);
+    var diff = Math.round((day - today) / 86400000);
+    var time = d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+    if (diff === 0) return 'Idag ' + time;
+    if (diff === 1) return 'Imorgon ' + time;
+    if (diff === -1) return 'Igår ' + time;
+    var opts = { weekday: 'short', day: 'numeric', month: 'short' };
+    if (day.getFullYear() !== today.getFullYear()) opts.year = 'numeric';
+    return d.toLocaleDateString('sv-SE', opts) + ' ' + time;
+  }
+
+  function render() {
+    var now = new Date();
+    var endToday = new Date(); endToday.setHours(23, 59, 59, 999);
+    var in7 = new Date(endToday.getTime() + 6 * 86400000);
+    var groups = [['Försenade', []], ['Idag', []], ['Kommande 7 dagar', []], ['Senare', []]];
+    items.slice().sort(function (a, b) { return new Date(a.start) - new Date(b.start); }).forEach(function (it) {
+      var d = new Date(it.start);
+      var g = d < now ? 0 : d <= endToday ? 1 : d <= in7 ? 2 : 3;
+      groups[g][1].push(it);
+    });
+    var root = $('list'); root.innerHTML = '';
+    var any = false;
+    groups.forEach(function (g) {
+      if (!g[1].length) return; any = true;
+      var h = document.createElement('h2'); h.textContent = g[0]; root.appendChild(h);
+      var card = document.createElement('div'); card.className = 'card'; card.style.padding = '4px 12px';
+      var ul = document.createElement('ul');
+      g[1].forEach(function (it) {
+        var li = document.createElement('li'); li.className = 'item' + (g[0] === 'Försenade' ? ' overdue' : '');
+        var c = document.createElement('button'); c.className = 'check'; c.title = 'Klar'; c.setAttribute('aria-label', 'Markera ”' + it.title + '” som klar');
+        c.onclick = function () { complete(it); };
+        var b = document.createElement('div'); b.className = 'body';
+        var tt = document.createElement('div'); tt.className = 't'; tt.textContent = it.title;
+        var w = document.createElement('div'); w.className = 'when';
+        w.textContent = fmtWhen(new Date(it.start)) + (it.recurring || (it.repeat && it.repeat !== 'none') ? ' · upprepas' : '') + (it.pending ? ' · synkar…' : '');
+        b.appendChild(tt); b.appendChild(w);
+        var x = document.createElement('button'); x.className = 'ghost'; x.textContent = '✕'; x.title = 'Ta bort'; x.setAttribute('aria-label', 'Ta bort ”' + it.title + '”');
+        x.onclick = function () { remove(it); };
+        li.appendChild(c); li.appendChild(b); li.appendChild(x); ul.appendChild(li);
+      });
+      card.appendChild(ul); root.appendChild(card);
+    });
+    if (!any) root.innerHTML = '<div class="empty">Inga påminnelser. Skriv eller säg något ovan!</div>';
+  }
+
+  // --- Röst -----------------------------------------------------------------
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var mic = $('mic'), rec = null, listening = false;
+  if (!SR) {
+    mic.hidden = true;
+    $('micHint').textContent = 'Tips: använd tangentbordets mikrofon för att tala in (iPhone/Android: mikrofonknappen på tangentbordet, Windows: Win + H, Chromebook: Sök + D).';
+  } else {
+    mic.onclick = function () {
+      if (listening) { rec.stop(); return; }
+      rec = new SR(); rec.lang = 'sv-SE'; rec.interimResults = true; rec.continuous = false;
+      var base = input.value ? input.value.trim() + ' ' : '';
+      rec.onstart = function () { listening = true; mic.classList.add('listening'); $('micHint').textContent = 'Lyssnar… säg din påminnelse.'; };
+      rec.onresult = function (e) {
+        var txt = ''; for (var i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
+        input.value = base + txt; preview();
+      };
+      rec.onerror = function (e) {
+        $('micHint').textContent = e.error === 'not-allowed' || e.error === 'service-not-allowed'
+          ? 'Mikrofonen är blockerad. Tillåt den i webbläsaren, eller använd tangentbordets mikrofon.'
+          : 'Röstinmatning misslyckades (' + e.error + '). Prova igen eller använd tangentbordets mikrofon.';
+      };
+      rec.onend = function () { listening = false; mic.classList.remove('listening'); if ($('micHint').textContent.indexOf('Lyssnar') === 0) $('micHint').textContent = 'Kontrollera texten och tryck ”Spara påminnelse”.'; };
+      try { rec.start(); } catch (e) { toast('Kunde inte starta mikrofonen'); }
+    };
+  }
+
+  // --- Lokala notiser (lokalt läge, och som extra när appen är öppen) -------
+  function askNotifications() {
+    if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  }
+  function tick() {
+    if (online) return; // i molnläge sköter Google Kalender notiserna
+    var now = Date.now();
+    items.forEach(function (it) {
+      var at = new Date(it.start).getTime() - (it.minutesBefore || 0) * 60000;
+      var key = it.id + '@' + it.start;
+      if (at <= now && now - at < 6 * 3600000 && !notified[key]) {
+        notified[key] = 1; LS.set('notified', notified);
+        notify(it.title, fmtWhen(new Date(it.start)));
+      }
+    });
+    render();
+  }
+  function notify(title, body) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') { toast('⏰ ' + title); return; }
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.ready.then(function (r) { r.showNotification(title, { body: body, icon: 'icon-192.png', tag: title }); });
+    } else new Notification(title, { body: body });
+  }
+  setInterval(tick, 30000);
+
+  // --- Inställningar --------------------------------------------------------
+  var dlg = $('settings');
+  function openSettings() { $('apiUrl').value = cfg.url; $('apiToken').value = cfg.token; $('settingsMsg').textContent = ''; dlg.showModal(); }
+  $('settingsBtn').onclick = openSettings; $('openSetup').onclick = openSettings;
+  $('refreshBtn').onclick = function () { sync(); };
+  $('notifBtn').onclick = function () {
+    if (!('Notification' in window)) { $('settingsMsg').textContent = 'Den här webbläsaren stöder inte notiser. På iPhone: lägg först till appen på hemskärmen.'; return; }
+    Notification.requestPermission().then(function (p) { $('settingsMsg').textContent = p === 'granted' ? 'Notiser tillåtna ✓' : 'Notiser är inte tillåtna.'; });
+  };
+  $('saveSettings').onclick = function () {
+    var url = $('apiUrl').value.trim(), token = $('apiToken').value.trim();
+    if (!url && !token) { cfg = { url: '', token: '' }; LS.set('cfg', cfg); online = false; dlg.close(); sync(); return; }
+    if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) { $('settingsMsg').textContent = 'Adressen ska börja med https://script.google.com/'; return; }
+    $('settingsMsg').textContent = 'Testar…';
+    var old = cfg; cfg = { url: url, token: token };
+    api('ping').then(function () {
+      var local = online ? [] : items.filter(function (x) { return new Date(x.start) > new Date(); });
+      LS.set('cfg', cfg); online = true; dlg.close();
+      // Flytta upp lokala påminnelser till kalendern
+      local.forEach(function (x) { pending.push({ action: 'add', data: { title: x.title, start: x.start, repeat: x.repeat || 'none', minutesBefore: x.minutesBefore || 0 } }); });
+      LS.set('pending', pending);
+      toast('Kopplad till Google Kalender ✓'); sync();
+    }).catch(function (e) { cfg = old; $('settingsMsg').textContent = 'Det gick inte: ' + e.message; });
+  };
+  $('copyLink').onclick = function () {
+    var url = $('apiUrl').value.trim() || cfg.url, token = $('apiToken').value.trim() || cfg.token;
+    if (!url || !token) { $('settingsMsg').textContent = 'Fyll i adress och kod först.'; return; }
+    var link = location.origin + location.pathname + '#setup=' + btoa(unescape(encodeURIComponent(JSON.stringify({ url: url, token: token }))));
+    var done = function () { $('settingsMsg').textContent = 'Länken är kopierad. Skicka den bara till dig själv (den innehåller din hemliga kod) och öppna den på dina andra enheter.'; };
+    if (navigator.clipboard) navigator.clipboard.writeText(link).then(done, function () { prompt('Kopiera länken:', link); });
+    else prompt('Kopiera länken:', link);
+  };
+
+  // --- Övrigt ---------------------------------------------------------------
+  var tt; function toast(msg) { var el = $('toast'); el.textContent = msg; el.classList.add('show'); clearTimeout(tt); tt = setTimeout(function () { el.classList.remove('show'); }, 2600); }
+  window.addEventListener('online', sync);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { sync(); tick(); } });
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+
+  render(); sync(); tick();
+})();
+</script>
+</body>
+</html>
