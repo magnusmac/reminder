@@ -16,9 +16,13 @@ Den fungerar på iPhone, Android (Samsung), Windows-dator och Chromebook.
 * **Appen** är en vanlig webbsida (PWA) som kan installeras på hemskärmen/skrivbordet. Ingen app-butik och ingen installation behövs.
 * **Röst:** mikrofonknappen använder webbläsarens taligenkänning (svenska). Där den saknas fungerar tangentbordets diktering lika bra
   (iPhone/Android: mikrofonen på tangentbordet, Windows: `Win + H`, Chromebook: `Sök + D`).
-* **Synk och notiser:** påminnelserna sparas som händelser i en egen kalender, *Påminnelser*, i ditt Google-konto via ett litet
-  Google Apps Script. Det är **Google Kalender som skickar notiserna**, så de kommer fram även när appen är stängd, på alla enheter.
-  Ingen egen server, ingen API-nyckel och ingen kostnad.
+* **Uppgifter i Google Tasks:** varje påminnelse blir en uppgift i den Tasks-lista du väljer. Den syns i Google Kalender och
+  Tasks-appen och kan bockas av där eller i appen.
+* **Med eller utan klockslag:** Google Tasks API kan bara spara *datum*, inte klockslag. Påminnelser **med klockslag** får därför
+  också en händelse i kalendern *Påminnelser* som plingar på exakt tid (och titeln får tiden först, t.ex. ”⏰ 14:30 · Ringa …”).
+  Påminnelser **utan klockslag** blir bara en uppgift och Tasks påminner på morgonen den dagen.
+  Bockar du av i appen försvinner både uppgift och händelse. Bockar du av i Tasks städas händelsen bort nästa gång appen synkar.
+* Allt sköts av ett litet Google Apps Script i ditt eget konto. Ingen egen server, ingen API-nyckel och ingen kostnad.
 * Utan Apps Script fungerar appen i **lokalt läge**: påminnelserna finns bara på den enheten och notiserna kommer bara när appen är öppen.
 
 ## Installation (cirka 10 minuter, en gång)
@@ -30,12 +34,14 @@ Den fungerar på iPhone, Android (Samsung), Windows-dator och Chromebook.
 
 1. Gå till <https://script.google.com> → **Nytt projekt**. Döp det till *Påminnelser*.
 2. Ta bort koden som står där och klistra in hela innehållet i [`apps-script/Code.gs`](apps-script/Code.gs).
-3. Välj funktionen **`setup`** i listan högst upp och tryck **Kör**. Godkänn behörigheterna (Kalender).
-   Öppna **Exekveringslogg**: där står din **hemliga kod**. Kopiera den.
-4. **Distribuera → Ny distribution → Typ: Webbapp**
+   Ändra `TASKLIST_NAME` högst upp till namnet på Tasks-listan du vill använda (eller `'@default'` för *Mina uppgifter*).
+3. Klicka **+** vid **Tjänster**, välj **Google Tasks API** och tryck **Lägg till**.
+4. Välj funktionen **`setup`** i listan högst upp och tryck **Kör**. Godkänn behörigheterna (Kalender).
+   Öppna **Exekveringslogg**: där står dina Tasks-listor, vilken lista som används och din **hemliga kod**. Kopiera koden.
+5. **Distribuera → Ny distribution → Typ: Webbapp**
    * *Kör som:* **Jag**
    * *Vem har åtkomst:* **Alla**  (koden ovan skyddar mot obehöriga)
-5. Tryck **Distribuera** och kopiera **webbappens URL** (slutar på `/exec`).
+6. Tryck **Distribuera** och kopiera **webbappens URL** (slutar på `/exec`).
 
 ### 2. Publicera appen (GitHub Pages)
 
@@ -45,6 +51,9 @@ Den fungerar på iPhone, Android (Samsung), Windows-dator och Chromebook.
 
 > GitHub Pages kräver att repot är **publikt** på gratisplanen. Det är ofarligt: koden innehåller inga hemligheter.
 > Din URL och hemliga kod sparas bara i webbläsaren på dina enheter.
+
+> **Uppdatera skriptet senare:** klistra in ny kod, spara, kör `setup` igen och välj sedan **Implementera → Hantera
+> implementeringar → ✏️ → Version: Ny version → Implementera**. Adressen (`/exec`) är densamma, så enheterna behöver inte ställas om.
 
 ### 3. Ställ in första enheten
 
@@ -69,6 +78,7 @@ i jobbkontot, eftersom aviseringar inte följer med vid delning. Kontrollera fö
 ## Använda appen
 
 * Skriv eller tala in. Appen tolkar tid och datum direkt och visar ett förslag som du kan justera innan du sparar.
+* Säger du inget klockslag (”imorgon köpa mjölk”) blir det en uppgift utan klockslag. Kryssrutan **Utan klockslag** växlar.
 * **Enter** sparar. Den runda knappen markerar *klar* (för upprepade påminnelser: bara den gången). ✕ tar bort (hela serien).
 * Fungerar offline: ändringar köas och synkas när nätet är tillbaka.
 

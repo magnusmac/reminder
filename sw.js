@@ -1,5 +1,5 @@
 // Service worker: gör appen installerbar och startbar offline.
-const CACHE = 'paminnelser-v1';
+const CACHE = 'paminnelser-v2';
 const SHELL = ['./', 'index.html', 'parse.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-180.png'];
 
 self.addEventListener('install', e => {

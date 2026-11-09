@@ -47,6 +47,8 @@
   .hint { color: var(--muted); font-size: .85rem; margin: 8px 2px 0; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
   .grid .full { grid-column: 1 / -1; }
+  label.inline { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font-size: .85rem; color: var(--text); cursor: pointer; }
+  label.inline input { width: auto; margin: 0; }
   label { font-size: .8rem; color: var(--muted); display: block; margin-bottom: 4px; }
   .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
   h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 4px 6px; }
@@ -107,14 +109,15 @@
     <form id="form" hidden>
       <div class="grid">
         <div class="full"><label for="title">Vad</label><input id="title" required maxlength="500"></div>
-        <div><label for="when">När</label><input id="when" type="datetime-local" required></div>
+        <div><label for="when">När</label><input id="when" type="datetime-local" required>
+          <label class="inline"><input type="checkbox" id="noTime"> Utan klockslag</label></div>
         <div><label for="repeat">Upprepa</label>
           <select id="repeat">
             <option value="none">Aldrig</option><option value="daily">Varje dag</option>
             <option value="weekdays">Vardagar</option><option value="weekly">Varje vecka</option>
             <option value="monthly">Varje månad</option><option value="yearly">Varje år</option>
           </select></div>
-        <div class="full"><label for="before">Avisering</label>
+        <div class="full" id="beforeWrap"><label for="before">Avisering</label>
           <select id="before">
             <option value="0">När det är dags</option><option value="5">5 min innan</option>
             <option value="15">15 min innan</option><option value="60">1 timme innan</option>
@@ -194,7 +197,7 @@
     setStatus('', 'Synkar…');
     return flush().then(function () { return api('list'); }).then(function (j) {
       items = j.items; LS.set('items', items); render();
-      setStatus('ok', 'Synkad med Google Kalender · ' + new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }));
+      setStatus('ok', 'Synkad med Google · ' + new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }));
     }).catch(function (e) {
       render();
       setStatus('warn', navigator.onLine ? 'Kunde inte synka: ' + e.message : 'Offline – ändringar sparas och synkas senare');
@@ -220,14 +223,37 @@
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
+  function ymd(d) { return toLocalInput(d).slice(0, 10); }
+  function parseYMD(str) { var a = String(str).split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
+  // Datum för ett objekt: heldag ("2026-11-10") tolkas som lokal midnatt, null = utan datum
+  function itemDate(it) {
+    if (!it.start) return null;
+    return it.allDay ? parseYMD(String(it.start).slice(0, 10)) : new Date(it.start);
+  }
+
+  // Växla mellan "datum + tid" och "bara datum"
+  var lastTime = [9, 0];
+  function setNoTime(on, d) {
+    var w = $('when');
+    var cur = d || (w.value ? (w.type === 'date' ? parseYMD(w.value) : new Date(w.value)) : new Date());
+    if (on) { if (w.type !== 'date' && w.value) lastTime = [cur.getHours(), cur.getMinutes()]; w.type = 'date'; w.value = ymd(cur); }
+    else {
+      if (w.type === 'date' && !d) { cur = new Date(cur); cur.setHours(lastTime[0], lastTime[1], 0, 0); }
+      w.type = 'datetime-local'; w.value = toLocalInput(cur);
+    }
+    $('noTime').checked = on;
+    $('beforeWrap').hidden = on;
+  }
+  $('noTime').addEventListener('change', function () { setNoTime(this.checked); });
+
   function preview() {
     var txt = input.value.trim();
     if (!txt) { form.hidden = true; return; }
     var r = window.parseReminder(txt);
     $('title').value = r.title || txt;
-    var d = r.date;
-    if (!d) { d = new Date(Date.now() + 3600000); d.setMinutes(0, 0, 0); }
-    $('when').value = toLocalInput(d);
+    var d = r.date || new Date();
+    // Inget klockslag i texten → uppgift utan klockslag (kan ändras med kryssrutan)
+    setNoTime(!r.hasTime, d);
     $('repeat').value = r.repeat;
     form.hidden = false;
   }
@@ -239,19 +265,21 @@
 
   form.addEventListener('submit', function (e) {
     e.preventDefault();
-    var start = new Date($('when').value);
-    if (isNaN(start)) return toast('Välj en tid');
-    var data = { title: $('title').value.trim(), start: start.toISOString(), repeat: $('repeat').value, minutesBefore: +$('before').value };
+    var allDay = $('noTime').checked;
+    var start = allDay ? parseYMD($('when').value) : new Date($('when').value);
+    if (!$('when').value || isNaN(start)) return toast(allDay ? 'Välj ett datum' : 'Välj en tid');
+    var data = { title: $('title').value.trim(), allDay: allDay, date: ymd(start), start: start.toISOString(),
+                 repeat: $('repeat').value, minutesBefore: allDay ? 0 : +$('before').value };
     if (!data.title) return toast('Skriv vad du vill bli påmind om');
     input.value = ''; form.hidden = true;
 
     if (online) {
       // Visa direkt, synka i bakgrunden
-      items.push({ id: 'tmp-' + Date.now(), title: data.title, start: data.start, recurring: data.repeat !== 'none', pending: true });
+      items.push({ id: 'tmp-' + Date.now(), title: data.title, start: allDay ? data.date : data.start, allDay: allDay, recurring: data.repeat !== 'none', pending: true });
       render();
-      queue('add', data).then(function () { toast('Sparad i Google Kalender ✓'); });
+      queue('add', data).then(function () { toast(allDay ? 'Sparad som uppgift i Google Tasks ✓' : 'Sparad i Tasks + Kalender ✓'); });
     } else {
-      items.push({ id: 'l' + Date.now(), title: data.title, start: data.start, repeat: data.repeat, minutesBefore: data.minutesBefore });
+      items.push({ id: 'l' + Date.now(), title: data.title, start: allDay ? data.date : data.start, allDay: allDay, repeat: data.repeat, minutesBefore: data.minutesBefore });
       LS.set('items', items); render(); toast('Sparad på den här enheten');
       askNotifications();
     }
@@ -262,10 +290,10 @@
     if (online) {
       items = items.filter(function (x) { return x !== it; }); render();
       if (String(it.id).indexOf('tmp-') === 0) return;
-      queue('done', { id: it.id, start: it.start });
+      queue('done', { id: it.id, kind: it.kind, start: it.start });
     } else {
-      var next = it.repeat && it.repeat !== 'none' ? nextOccurrence(new Date(it.start), it.repeat) : null;
-      if (next) it.start = next.toISOString(); else items = items.filter(function (x) { return x !== it; });
+      var next = it.repeat && it.repeat !== 'none' ? nextOccurrence(itemDate(it), it.repeat) : null;
+      if (next) it.start = it.allDay ? ymd(next) : next.toISOString(); else items = items.filter(function (x) { return x !== it; });
       LS.set('items', items); render();
     }
     toast('Klar ✓');
@@ -273,7 +301,7 @@
   function remove(it) {
     if (it.recurring || (it.repeat && it.repeat !== 'none')) { if (!confirm('Ta bort alla upprepningar av ”' + it.title + '”?')) return; }
     items = items.filter(function (x) { return x.id !== it.id; }); render();
-    if (online) { if (String(it.id).indexOf('tmp-') !== 0) queue('delete', { id: it.id }); }
+    if (online) { if (String(it.id).indexOf('tmp-') !== 0) queue('delete', { id: it.id, kind: it.kind }); }
     else LS.set('items', items);
   }
   function nextOccurrence(d, rep) {
@@ -290,27 +318,31 @@
   }
 
   // --- Lista ----------------------------------------------------------------
-  function fmtWhen(d) {
+  function fmtWhen(d, allDay) {
+    if (!d) return 'Utan datum';
     var today = new Date(); today.setHours(0, 0, 0, 0);
     var day = new Date(d); day.setHours(0, 0, 0, 0);
     var diff = Math.round((day - today) / 86400000);
-    var time = d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-    if (diff === 0) return 'Idag ' + time;
-    if (diff === 1) return 'Imorgon ' + time;
-    if (diff === -1) return 'Igår ' + time;
+    var time = allDay ? '' : d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+    if (diff === 0) return ('Idag ' + time).trim();
+    if (diff === 1) return ('Imorgon ' + time).trim();
+    if (diff === -1) return ('Igår ' + time).trim();
     var opts = { weekday: 'short', day: 'numeric', month: 'short' };
     if (day.getFullYear() !== today.getFullYear()) opts.year = 'numeric';
-    return d.toLocaleDateString('sv-SE', opts) + ' ' + time;
+    var txt = d.toLocaleDateString('sv-SE', opts) + ' ' + time;
+    return txt.charAt(0).toUpperCase() + txt.slice(1);
   }
 
   function render() {
     var now = new Date();
     var endToday = new Date(); endToday.setHours(23, 59, 59, 999);
     var in7 = new Date(endToday.getTime() + 6 * 86400000);
-    var groups = [['Försenade', []], ['Idag', []], ['Kommande 7 dagar', []], ['Senare', []]];
-    items.slice().sort(function (a, b) { return new Date(a.start) - new Date(b.start); }).forEach(function (it) {
-      var d = new Date(it.start);
-      var g = d < now ? 0 : d <= endToday ? 1 : d <= in7 ? 2 : 3;
+    var groups = [['Försenade', []], ['Idag', []], ['Kommande 7 dagar', []], ['Senare', []], ['Utan datum', []]];
+    var startToday = new Date(); startToday.setHours(0, 0, 0, 0);
+    var key = function (it) { var d = itemDate(it); return d ? d.getTime() + (it.allDay ? -1 : 0) : Infinity; };
+    items.slice().sort(function (a, b) { return key(a) - key(b); }).forEach(function (it) {
+      var d = itemDate(it);
+      var g = !d ? 4 : (it.allDay ? d < startToday : d < now) ? 0 : d <= endToday ? 1 : d <= in7 ? 2 : 3;
       groups[g][1].push(it);
     });
     var root = $('list'); root.innerHTML = '';
@@ -327,7 +359,7 @@
         var b = document.createElement('div'); b.className = 'body';
         var tt = document.createElement('div'); tt.className = 't'; tt.textContent = it.title;
         var w = document.createElement('div'); w.className = 'when';
-        w.textContent = fmtWhen(new Date(it.start)) + (it.recurring || (it.repeat && it.repeat !== 'none') ? ' · upprepas' : '') + (it.pending ? ' · synkar…' : '');
+        w.textContent = fmtWhen(itemDate(it), it.allDay) + (it.allDay && itemDate(it) ? ' · utan klockslag' : '') + (it.recurring || (it.repeat && it.repeat !== 'none') ? ' · upprepas' : '') + (it.pending ? ' · synkar…' : '');
         b.appendChild(tt); b.appendChild(w);
         var x = document.createElement('button'); x.className = 'ghost'; x.textContent = '✕'; x.title = 'Ta bort'; x.setAttribute('aria-label', 'Ta bort ”' + it.title + '”');
         x.onclick = function () { remove(it); };
@@ -369,14 +401,16 @@
     if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
   }
   function tick() {
-    if (online) return; // i molnläge sköter Google Kalender notiserna
+    if (online) return; // i molnläge sköter Google Tasks/Kalender notiserna
     var now = Date.now();
     items.forEach(function (it) {
-      var at = new Date(it.start).getTime() - (it.minutesBefore || 0) * 60000;
+      var d = itemDate(it); if (!d) return;
+      if (it.allDay) d.setHours(9, 0, 0, 0); // uppgifter utan klockslag: påminn kl 9
+      var at = d.getTime() - (it.minutesBefore || 0) * 60000;
       var key = it.id + '@' + it.start;
       if (at <= now && now - at < 6 * 3600000 && !notified[key]) {
         notified[key] = 1; LS.set('notified', notified);
-        notify(it.title, fmtWhen(new Date(it.start)));
+        notify(it.title, fmtWhen(itemDate(it), it.allDay));
       }
     });
     render();
@@ -405,10 +439,10 @@
     $('settingsMsg').textContent = 'Testar…';
     var old = cfg; cfg = { url: url, token: token };
     api('ping').then(function () {
-      var local = online ? [] : items.filter(function (x) { return new Date(x.start) > new Date(); });
+      var local = online ? [] : items.filter(function (x) { var d = itemDate(x); return d && (x.allDay ? d >= new Date(new Date().setHours(0, 0, 0, 0)) : d > new Date()); });
       LS.set('cfg', cfg); online = true; dlg.close();
       // Flytta upp lokala påminnelser till kalendern
-      local.forEach(function (x) { pending.push({ action: 'add', data: { title: x.title, start: x.start, repeat: x.repeat || 'none', minutesBefore: x.minutesBefore || 0 } }); });
+      local.forEach(function (x) { var d = itemDate(x); pending.push({ action: 'add', data: { title: x.title, allDay: !!x.allDay, date: ymd(d), start: d.toISOString(), repeat: x.repeat || 'none', minutesBefore: x.minutesBefore || 0 } }); });
       LS.set('pending', pending);
       toast('Kopplad till Google Kalender ✓'); sync();
     }).catch(function (e) { cfg = old; $('settingsMsg').textContent = 'Det gick inte: ' + e.message; });

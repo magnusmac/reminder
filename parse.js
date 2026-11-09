@@ -153,7 +153,7 @@
       .replace(/^(?:att)\s+/i, '');
     if (title) title = title.charAt(0).toUpperCase() + title.slice(1);
 
-    return { title: title, date: date, repeat: repeat };
+    return { title: title, date: date, repeat: repeat, hasTime: !!(time || exact) };
   }
 
   function nextWeekday(now, wd, allowToday) {
